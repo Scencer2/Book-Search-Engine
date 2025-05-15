@@ -1,39 +1,53 @@
-import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-import dotenv from 'dotenv';
-dotenv.config();
-
-interface JwtPayload {
-  _id: unknown;
+export interface JwtPayload {
+  _id: any;
   username: string;
-  email: string,
+  email: string;
 }
 
-export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
+const secret = process.env.JWT_SECRET_KEY!;
+const expiration = '2h';
 
-  if (authHeader) {
-    const token = authHeader.split(' ')[1];
+// Used by Apollo context
+export function authenticateToken({ req }: { req: any }) {
+  let token = req.body?.token || req.query?.token || req.headers?.authorization;
 
-    const secretKey = process.env.JWT_SECRET_KEY || '';
-
-    jwt.verify(token, secretKey, (err, user) => {
-      if (err) {
-        return res.sendStatus(403); // Forbidden
-      }
-
-      req.user = user as JwtPayload;
-      return next();
-    });
-  } else {
-    res.sendStatus(401); // Unauthorized
+  if (req.headers?.authorization) {
+    token = token.split(' ').pop().trim();
   }
-};
 
-export const signToken = (username: string, email: string, _id: unknown) => {
-  const payload = { username, email, _id };
-  const secretKey = process.env.JWT_SECRET_KEY || '';
+  if (!token) return req;
 
-  return jwt.sign(payload, secretKey, { expiresIn: '1h' });
-};
+  try {
+    const { data } = jwt.verify(token, secret) as { data: JwtPayload };
+    req.user = data;
+  } catch {
+    console.log('Invalid token');
+  }
+
+  return req;
+}
+
+// Function overloads for GraphQL and old REST controllers
+export function signToken(user: JwtPayload): string;
+export function signToken(username: string, email: string, _id: any): string;
+export function signToken(
+  arg1: JwtPayload | string,
+  arg2?: string,
+  arg3?: any
+): string {
+  let payload: JwtPayload;
+
+  if (typeof arg1 === 'object') {
+    payload = arg1;
+  } else {
+    payload = {
+      username: arg1,
+      email: arg2!,
+      _id: arg3,
+    };
+  }
+
+  return jwt.sign({ data: payload }, secret, { expiresIn: expiration });
+}
